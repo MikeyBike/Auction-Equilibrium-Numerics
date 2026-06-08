@@ -33,7 +33,7 @@ def solve_auction(
             grid_size=grid_size,
             tol=tol,
             max_iter=max_iter,
-            damping=cast(float, kwargs.pop("damping", 0.5)),
+            damping=cast(float, kwargs.pop("damping", 1.0)),
         )
     if method == "polynomial":
         return solve_polynomial(
