@@ -1,11 +1,23 @@
 """Auction equilibrium numerics package."""
 
 from auction_equilibrium_numerics.__about__ import __version__
+from auction_equilibrium_numerics.benchmarks import (
+    compare_solvers,
+    solver_diagnostics_table,
+    strong_asymmetry_benchmark,
+)
 from auction_equilibrium_numerics.data import (
     TimberDataset,
     build_auction_level_table,
     build_bid_level_table,
     build_timber_dataset,
+)
+from auction_equilibrium_numerics.estimation import (
+    BetaMomentEstimate,
+    empirical_cdf,
+    fit_beta_moments,
+    invert_symmetric_first_price_bids,
+    kde_pdf,
 )
 from auction_equilibrium_numerics.first_price import (
     AsymmetricAuctionProblem,
@@ -37,6 +49,7 @@ __all__ = [
     "AsymmetricFirstPriceModel",
     "AsymmetricAuctionProblem",
     "AuctionSolution",
+    "BetaMomentEstimate",
     "BetaBidder",
     "FixedPointSolution",
     "PolynomialSolution",
@@ -44,10 +57,15 @@ __all__ = [
     "ShootingSolution",
     "TimberDataset",
     "__version__",
+    "compare_solvers",
     "build_auction_level_table",
     "build_bid_level_table",
     "build_timber_dataset",
+    "empirical_cdf",
     "expected_revenue_uniform",
+    "fit_beta_moments",
+    "invert_symmetric_first_price_bids",
+    "kde_pdf",
     "optimal_uniform_reserve",
     "reserve_curve_uniform",
     "solve_auction",
@@ -56,4 +74,6 @@ __all__ = [
     "solve_polynomial",
     "solve_reserve_counterfactuals",
     "solve_shooting",
+    "solver_diagnostics_table",
+    "strong_asymmetry_benchmark",
 ]
