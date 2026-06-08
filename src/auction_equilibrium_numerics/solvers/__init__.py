@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import cast
 
+import numpy as np
+
 from auction_equilibrium_numerics.primitives.auction import AsymmetricFirstPriceModel
 from auction_equilibrium_numerics.solvers._shared import AuctionSolution
 from auction_equilibrium_numerics.solvers.bvp_collocation import solve_bvp_collocation
@@ -48,6 +50,8 @@ def solve_auction(
             basis=cast(str, kwargs.pop("basis", "chebyshev")),
             tol=tol,
             max_iter=max_iter,
+            mesh_power=cast(float, kwargs.pop("mesh_power", 2.0)),
+            initial_guess=cast(np.ndarray | None, kwargs.pop("initial_guess", None)),
         )
     raise ValueError(f"Unknown solution method: {method!r}")
 

@@ -79,10 +79,13 @@ def solve_reserve_counterfactuals(
         )
 
     reserves = np.asarray(reserve_grid, dtype=float)
+    order = np.argsort(reserves)
     revenue = np.empty_like(reserves)
     sale_prob = np.empty_like(reserves)
     conditional_payment = np.empty_like(reserves)
-    for idx, reserve in enumerate(reserves):
+    warm_start: np.ndarray | None = None
+    for sorted_idx, idx in enumerate(order):
+        reserve = float(reserves[idx])
         reserve_model = AsymmetricFirstPriceModel(
             alpha=model.alpha,
             beta=model.beta,
@@ -98,13 +101,21 @@ def solve_reserve_counterfactuals(
             grid_size=grid_size,
             tol=tol,
             max_iter=max_iter,
+            initial_guess=warm_start if method == "bvp_collocation" else None,
             **kwargs,
         )
+        if method == "bvp_collocation":
+            raw_solution = solution.metadata.get("raw_solution_params")
+            warm_start = (
+                np.asarray(raw_solution, dtype=float)
+                if raw_solution is not None
+                else warm_start
+            )
         revenue[idx], sale_prob[idx], conditional_payment[idx] = (
             simulate_first_price_revenue(
                 solution,
                 num_draws=num_draws,
-                seed=seed + idx,
+                seed=seed + sorted_idx,
             )
         )
     return ReservePolicyResult(

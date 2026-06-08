@@ -116,26 +116,35 @@ def _solve_bvp_backend(
     tol: float,
     max_iter: int,
     mesh_power: float,
+    initial_guess: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, bool, float, dict[str, object]]:
     if grid_size < 4:
         raise ValueError("`grid_size` must be at least 4 for the BVP solver.")
 
     distribution_problem = model.to_distribution_problem()
     nodes = _collocation_nodes(grid_size, basis=basis, mesh_power=mesh_power)
-    raw_steps = np.zeros((grid_size - 1, model.num_bidders), dtype=float)
-    initial = np.concatenate(
-        [
-            raw_steps.reshape(-1),
-            np.asarray(
-                [
-                    _raw_bhigh(
-                        0.5 * (model.active_value_low + model.support_high), model
-                    )
-                ],
-                dtype=float,
-            ),
-        ]
-    )
+    if initial_guess is None:
+        raw_steps = np.zeros((grid_size - 1, model.num_bidders), dtype=float)
+        initial = np.concatenate(
+            [
+                raw_steps.reshape(-1),
+                np.asarray(
+                    [
+                        _raw_bhigh(
+                            0.5 * (model.active_value_low + model.support_high), model
+                        )
+                    ],
+                    dtype=float,
+                ),
+            ]
+        )
+    else:
+        expected_size = (grid_size - 1) * model.num_bidders + 1
+        if initial_guess.shape != (expected_size,):
+            raise ValueError(
+                "Warm-start `initial_guess` has the wrong shape for this grid/model."
+            )
+        initial = initial_guess
 
     residual_fn = jax.jit(
         lambda x: _bvp_residual_vector(
@@ -173,6 +182,7 @@ def _solve_bvp_backend(
         "optimizer_message": str(result.message),
         "residual_norm": float(np.linalg.norm(result.fun)),
         "iterations": int(result.nfev),
+        "raw_solution_params": result.x.copy(),
     }
     return bid_grid, inverse_bids, bool(result.success), bhigh, metadata
 
@@ -185,6 +195,7 @@ def solve_bvp_collocation(
     tol: float = 1e-8,
     max_iter: int = 256,
     mesh_power: float = 2.0,
+    initial_guess: np.ndarray | None = None,
 ) -> AuctionSolution:
     """Solve the asymmetric first-price equilibrium as a nonlinear BVP."""
 
@@ -197,6 +208,7 @@ def solve_bvp_collocation(
             tol=tol,
             max_iter=max_iter,
             mesh_power=mesh_power,
+            initial_guess=initial_guess,
         )
     )
     return solution_from_inverse_bids(
