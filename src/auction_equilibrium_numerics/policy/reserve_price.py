@@ -7,8 +7,10 @@ import numpy as np
 from auction_equilibrium_numerics.policy.revenue import (
     ReservePolicyResult,
     expected_revenue_uniform,
+    simulate_first_price_revenue,
 )
 from auction_equilibrium_numerics.primitives.auction import AsymmetricFirstPriceModel
+from auction_equilibrium_numerics.solvers import solve_auction
 
 
 def optimal_uniform_reserve(*, seller_value: float = 0.0) -> float:
@@ -53,8 +55,16 @@ def reserve_curve_uniform(
 def solve_reserve_counterfactuals(
     model: AsymmetricFirstPriceModel,
     reserve_grid: np.ndarray,
+    *,
+    method: str = "bvp_collocation",
+    grid_size: int = 48,
+    tol: float = 1e-8,
+    max_iter: int = 300,
+    num_draws: int = 20_000,
+    seed: int = 0,
+    **kwargs: object,
 ) -> ReservePolicyResult:
-    """Counterfactual reserve interface for future asymmetric-policy work."""
+    """Counterfactual reserve interface over a reserve grid."""
 
     if (
         model.gamma == 1.0
@@ -67,7 +77,39 @@ def solve_reserve_counterfactuals(
             num_bidders=model.num_bidders,
             reserve_grid=np.asarray(reserve_grid, dtype=float),
         )
-    raise NotImplementedError(
-        "General reserve-price counterfactuals require the forthcoming BVP "
-        "solver and a model with reserve_price separated from the value support."
+
+    reserves = np.asarray(reserve_grid, dtype=float)
+    revenue = np.empty_like(reserves)
+    sale_prob = np.empty_like(reserves)
+    conditional_payment = np.empty_like(reserves)
+    for idx, reserve in enumerate(reserves):
+        reserve_model = AsymmetricFirstPriceModel(
+            alpha=model.alpha,
+            beta=model.beta,
+            gamma=model.gamma,
+            support_low=model.support_low,
+            support_high=model.support_high,
+            reserve_price=float(reserve),
+            name=model.name,
+        )
+        solution = solve_auction(
+            reserve_model,
+            method=method,
+            grid_size=grid_size,
+            tol=tol,
+            max_iter=max_iter,
+            **kwargs,
+        )
+        revenue[idx], sale_prob[idx], conditional_payment[idx] = (
+            simulate_first_price_revenue(
+                solution,
+                num_draws=num_draws,
+                seed=seed + idx,
+            )
+        )
+    return ReservePolicyResult(
+        reserve_grid=reserves,
+        expected_revenue=revenue,
+        sale_probability=sale_prob,
+        expected_payment_given_sale=conditional_payment,
     )

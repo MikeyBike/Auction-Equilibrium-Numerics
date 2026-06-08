@@ -39,7 +39,7 @@ def residual_matrix(
         jnp.asarray(bid_grid, dtype=jnp.float64),
         jnp.asarray(inverse_bid_functions, dtype=jnp.float64),
         jnp.asarray(derivatives, dtype=jnp.float64),
-        model.to_legacy_problem(),
+        model.to_distribution_problem(),
     )
     residuals_np = np.asarray(residuals).copy()
     residuals_np[0, :] = model.reserve_price - inverse_bid_functions[0, :]

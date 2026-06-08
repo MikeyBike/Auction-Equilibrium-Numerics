@@ -44,10 +44,28 @@ class AsymmetricFirstPriceModel:
         return len(self.alpha)
 
     @property
+    def active_value_low(self) -> float:
+        """Lowest active type under the current reserve."""
+
+        reserve = self.support_low if self.reserve_price is None else self.reserve_price
+        return float(reserve)
+
+    @property
     def bidders(self) -> tuple[BetaBidder, ...]:
         return tuple(
             BetaBidder(alpha=a, beta=b, label=f"bidder_{idx + 1}")
             for idx, (a, b) in enumerate(zip(self.alpha, self.beta, strict=True))
+        )
+
+    def to_distribution_problem(self) -> LegacyAuctionProblem:
+        """Distribution-support object for density/CDF evaluation."""
+
+        return LegacyAuctionProblem(
+            alpha=self.alpha,
+            beta=self.beta,
+            gamma=self.gamma,
+            vlow=self.support_low,
+            vhigh=self.support_high,
         )
 
     def to_legacy_problem(self) -> LegacyAuctionProblem:
@@ -64,10 +82,4 @@ class AsymmetricFirstPriceModel:
                 "Use the policy/reserve benchmarks for reserve sweeps until the "
                 "BVP solver and separate reserve boundary conditions are added."
             )
-        return LegacyAuctionProblem(
-            alpha=self.alpha,
-            beta=self.beta,
-            gamma=self.gamma,
-            vlow=self.support_low,
-            vhigh=self.support_high,
-        )
+        return self.to_distribution_problem()

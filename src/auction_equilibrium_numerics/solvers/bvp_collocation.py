@@ -28,15 +28,15 @@ EPS = 1e-8
 
 
 def _transform_bhigh(raw: Array, model: AsymmetricFirstPriceModel) -> Array:
-    span = model.support_high - model.support_low
+    span = model.support_high - model.active_value_low
     margin = 1e-3 * span
-    return model.support_low + margin + (span - 2.0 * margin) * jnn.sigmoid(raw)
+    return model.active_value_low + margin + (span - 2.0 * margin) * jnn.sigmoid(raw)
 
 
 def _raw_bhigh(bhigh: float, model: AsymmetricFirstPriceModel) -> float:
-    span = model.support_high - model.support_low
+    span = model.support_high - model.active_value_low
     margin = 1e-3 * span
-    scaled = (bhigh - model.support_low - margin) / (span - 2.0 * margin)
+    scaled = (bhigh - model.active_value_low - margin) / (span - 2.0 * margin)
     scaled = float(np.clip(scaled, 1e-6, 1.0 - 1e-6))
     return float(np.log(scaled / (1.0 - scaled)))
 
@@ -60,10 +60,10 @@ def _collocation_nodes(
 def _build_inverse_bids(raw_steps: Array, model: AsymmetricFirstPriceModel) -> Array:
     positive_steps = jnn.softplus(raw_steps) + EPS
     normalized = positive_steps / jnp.sum(positive_steps, axis=0, keepdims=True)
-    span = model.support_high - model.support_low
+    span = model.support_high - model.active_value_low
     cumulative = jnp.cumsum(normalized, axis=0)
-    values = model.support_low + span * cumulative
-    low = jnp.full((1, model.num_bidders), model.support_low, dtype=jnp.float64)
+    values = model.active_value_low + span * cumulative
+    low = jnp.full((1, model.num_bidders), model.active_value_low, dtype=jnp.float64)
     return jnp.vstack([low, values])
 
 
@@ -82,26 +82,28 @@ def _bvp_residual_vector(
     params: Array,
     *,
     model: AsymmetricFirstPriceModel,
-    legacy_problem: AsymmetricAuctionProblem,
+    distribution_problem: AsymmetricAuctionProblem,
     grid_size: int,
     nodes: Array,
 ) -> Array:
     num_bidders = model.num_bidders
     raw_steps = params[:-1].reshape((grid_size - 1, num_bidders))
     bhigh = _transform_bhigh(params[-1], model)
-    bids = model.support_low + (bhigh - model.support_low) * nodes
+    bids = model.active_value_low + (bhigh - model.active_value_low) * nodes
     inverse_bids = _build_inverse_bids(raw_steps, model)
     derivatives = _finite_difference_derivatives(bids, inverse_bids)
 
-    foc = inverse_bid_foc_residual(bids, inverse_bids, derivatives, legacy_problem)
+    foc = inverse_bid_foc_residual(
+        bids, inverse_bids, derivatives, distribution_problem
+    )
     interior_foc = foc[1:-1, :].reshape(-1)
     rationality = jax.nn.relu(bids[:, None] - inverse_bids).reshape(-1)
 
     residuals = [
         interior_foc,
         10.0 * rationality,
-        10.0 * low_bid_condition(derivatives[0, :], legacy_problem),
-        10.0 * high_bid_condition(derivatives[-1, :], bhigh, legacy_problem),
+        10.0 * low_bid_condition(derivatives[0, :], distribution_problem),
+        10.0 * high_bid_condition(derivatives[-1, :], bhigh, distribution_problem),
     ]
     return jnp.concatenate(residuals)
 
@@ -118,14 +120,18 @@ def _solve_bvp_backend(
     if grid_size < 4:
         raise ValueError("`grid_size` must be at least 4 for the BVP solver.")
 
-    legacy_problem = model.to_legacy_problem()
+    distribution_problem = model.to_distribution_problem()
     nodes = _collocation_nodes(grid_size, basis=basis, mesh_power=mesh_power)
     raw_steps = np.zeros((grid_size - 1, model.num_bidders), dtype=float)
     initial = np.concatenate(
         [
             raw_steps.reshape(-1),
             np.asarray(
-                [_raw_bhigh(0.5 * (model.support_low + model.support_high), model)],
+                [
+                    _raw_bhigh(
+                        0.5 * (model.active_value_low + model.support_high), model
+                    )
+                ],
                 dtype=float,
             ),
         ]
@@ -135,7 +141,7 @@ def _solve_bvp_backend(
         lambda x: _bvp_residual_vector(
             jnp.asarray(x, dtype=jnp.float64),
             model=model,
-            legacy_problem=legacy_problem,
+            distribution_problem=distribution_problem,
             grid_size=grid_size,
             nodes=jnp.asarray(nodes, dtype=jnp.float64),
         )
@@ -153,7 +159,7 @@ def _solve_bvp_backend(
 
     raw_steps_solution = result.x[:-1].reshape((grid_size - 1, model.num_bidders))
     bhigh = float(_transform_bhigh(jnp.asarray(result.x[-1]), model))
-    bid_grid = model.support_low + (bhigh - model.support_low) * nodes
+    bid_grid = model.active_value_low + (bhigh - model.active_value_low) * nodes
     inverse_bids = np.asarray(
         _build_inverse_bids(
             jnp.asarray(raw_steps_solution, dtype=jnp.float64),
