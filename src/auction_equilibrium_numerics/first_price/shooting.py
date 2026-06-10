@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import jax
@@ -57,28 +58,41 @@ def _ode_rhs(
 Array = jax.Array
 
 
+def _make_rk4_integrator(
+    problem: AsymmetricAuctionProblem,
+    n_grid: int,
+) -> Callable[[float], tuple[Array, Array]]:
+    """Build a compiled RK4 integrator for repeated shooting trials."""
+
+    @jax.jit
+    def integrate(bhigh: float) -> tuple[Array, Array]:
+        bids = jnp.linspace(bhigh, problem.vlow, n_grid)
+        initial = jnp.full((problem.num_bidders,), problem.vhigh, dtype=jnp.float64)
+
+        def step(state: Array, bid_pair: tuple[Array, Array]) -> tuple[Array, Array]:
+            b0, b1 = bid_pair
+            h = b1 - b0
+            k1 = _ode_rhs(b0, state, problem)
+            k2 = _ode_rhs(b0 + 0.5 * h, state + 0.5 * h * k1, problem)
+            k3 = _ode_rhs(b0 + 0.5 * h, state + 0.5 * h * k2, problem)
+            k4 = _ode_rhs(b1, state + h * k3, problem)
+            next_state = state + h * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+            return next_state, next_state
+
+        _, tail = jax.lax.scan(step, initial, (bids[:-1], bids[1:]))
+        values = jnp.vstack((initial[None, :], tail))
+        return bids, values
+
+    return integrate
+
+
 def _integrate_rk4(
     problem: AsymmetricAuctionProblem,
     bhigh: float,
     n_grid: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    rhs = jax.jit(lambda b, x: _ode_rhs(b, x, problem))
-    bids = np.linspace(bhigh, problem.vlow, n_grid)
-    values = np.empty((n_grid, problem.num_bidders), dtype=float)
-    values[0, :] = problem.vhigh
-
-    for idx in range(n_grid - 1):
-        b0 = bids[idx]
-        b1 = bids[idx + 1]
-        h = b1 - b0
-        state = jnp.asarray(values[idx, :], dtype=jnp.float64)
-        k1 = np.asarray(rhs(b0, state))
-        k2 = np.asarray(rhs(b0 + 0.5 * h, state + 0.5 * h * k1))
-        k3 = np.asarray(rhs(b0 + 0.5 * h, state + 0.5 * h * k2))
-        k4 = np.asarray(rhs(b1, state + h * k3))
-        values[idx + 1, :] = values[idx, :] + h * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
-
-    return bids, values
+    bids, values = _make_rk4_integrator(problem, n_grid)(bhigh)
+    return np.asarray(bids), np.asarray(values)
 
 
 def _classify_solution(
@@ -124,7 +138,11 @@ def solve_shooting(
         if initial_bhigh is not None
         else 0.5 * (problem.vlow + problem.vhigh)
     )
-    bids, inverse_bids = _integrate_rk4(problem, bhigh, n_grid)
+    integrate = _make_rk4_integrator(problem, n_grid)
+
+    bids_jax, inverse_bids_jax = integrate(bhigh)
+    bids = np.asarray(bids_jax)
+    inverse_bids = np.asarray(inverse_bids_jax)
     ctest = _classify_solution(problem, bids, inverse_bids, ctol)
 
     lowbnd = problem.vlow + 1e-4
@@ -136,7 +154,9 @@ def solve_shooting(
             lowbnd = bhigh
             bhigh = _adjust_bhigh(problem, bhigh, bracket_step, 1.0)
             highbnd = bhigh
-            bids, inverse_bids = _integrate_rk4(problem, bhigh, n_grid)
+            bids_jax, inverse_bids_jax = integrate(bhigh)
+            bids = np.asarray(bids_jax)
+            inverse_bids = np.asarray(inverse_bids_jax)
             ctest = _classify_solution(problem, bids, inverse_bids, ctol)
             iterations += 1
     else:
@@ -144,12 +164,16 @@ def solve_shooting(
             highbnd = bhigh
             bhigh = _adjust_bhigh(problem, bhigh, bracket_step, -1.0)
             lowbnd = bhigh
-            bids, inverse_bids = _integrate_rk4(problem, bhigh, n_grid)
+            bids_jax, inverse_bids_jax = integrate(bhigh)
+            bids = np.asarray(bids_jax)
+            inverse_bids = np.asarray(inverse_bids_jax)
             ctest = _classify_solution(problem, bids, inverse_bids, ctol)
             iterations += 1
 
     bhigh = 0.5 * (lowbnd + highbnd)
-    bids, inverse_bids = _integrate_rk4(problem, bhigh, n_grid)
+    bids_jax, inverse_bids_jax = integrate(bhigh)
+    bids = np.asarray(bids_jax)
+    inverse_bids = np.asarray(inverse_bids_jax)
     ctest = _classify_solution(problem, bids, inverse_bids, ctol)
 
     while ctest != 1 and iterations < max_iterations:
@@ -158,7 +182,9 @@ def solve_shooting(
         else:
             lowbnd = bhigh
         bhigh = 0.5 * (lowbnd + highbnd)
-        bids, inverse_bids = _integrate_rk4(problem, bhigh, n_grid)
+        bids_jax, inverse_bids_jax = integrate(bhigh)
+        bids = np.asarray(bids_jax)
+        inverse_bids = np.asarray(inverse_bids_jax)
         ctest = _classify_solution(problem, bids, inverse_bids, ctol)
         iterations += 1
 
@@ -179,17 +205,17 @@ def shooting_residuals(solution: ShootingSolution) -> np.ndarray:
 
     bids = solution.bid_grid
     inverse_bids = solution.inverse_bids
-    rhs = jax.jit(lambda b, x: _ode_rhs(b, x, solution.problem))
-    derivatives = np.vstack(
-        [
-            np.asarray(rhs(bid, jnp.asarray(values, dtype=jnp.float64)))
-            for bid, values in zip(bids, inverse_bids, strict=True)
-        ]
+    rhs_batch = jax.jit(
+        jax.vmap(lambda bid, values: _ode_rhs(bid, values, solution.problem))
+    )
+    derivatives = rhs_batch(
+        jnp.asarray(bids, dtype=jnp.float64),
+        jnp.asarray(inverse_bids, dtype=jnp.float64),
     )
     residuals = inverse_bid_foc_residual(
         jnp.asarray(bids, dtype=jnp.float64),
         jnp.asarray(inverse_bids, dtype=jnp.float64),
-        jnp.asarray(derivatives, dtype=jnp.float64),
+        derivatives,
         solution.problem,
     )
     residuals_np = np.asarray(residuals).copy()

@@ -153,19 +153,22 @@ def solve_polynomial(
         ]
     )
 
-    residual_fn = jax.jit(
-        lambda x: _polynomial_residual_vector(
+    def residual_core(x: Array) -> Array:
+        return _polynomial_residual_vector(
             jnp.asarray(x, dtype=jnp.float64),
             problem,
             degree,
             n_collocation,
             n_constraint,
         )
-    )
+
+    residual_fn = jax.jit(residual_core)
+    jacobian_fn = jax.jit(jax.jacfwd(residual_core))
 
     result = least_squares(
         lambda x: np.asarray(residual_fn(x)),
-        initial,
+        jac=lambda x: np.asarray(jacobian_fn(x)),
+        x0=initial,
         method="trf",
         max_nfev=max_nfev,
         ftol=1e-10,
