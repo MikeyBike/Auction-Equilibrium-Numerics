@@ -11,6 +11,7 @@ from auction_equilibrium_numerics.data import (
     build_auction_level_table,
     build_bid_level_table,
     build_timber_dataset,
+    load_timber_dataset,
 )
 from auction_equilibrium_numerics.estimation import (
     BetaMomentEstimate,
@@ -61,6 +62,7 @@ __all__ = [
     "build_auction_level_table",
     "build_bid_level_table",
     "build_timber_dataset",
+    "load_timber_dataset",
     "empirical_cdf",
     "expected_revenue_uniform",
     "fit_beta_moments",
