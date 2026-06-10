@@ -34,9 +34,11 @@ from auction_equilibrium_numerics.first_price import (
 )
 from auction_equilibrium_numerics.policy import (
     ReservePolicyResult,
+    TimberReserveCounterfactual,
     expected_revenue_uniform,
     optimal_uniform_reserve,
     reserve_curve_uniform,
+    run_timber_reserve_counterfactual,
     solve_reserve_counterfactuals,
 )
 from auction_equilibrium_numerics.primitives import (
@@ -61,6 +63,7 @@ __all__ = [
     "ShootingSolution",
     "TimberDataset",
     "TimberGPVEstimate",
+    "TimberReserveCounterfactual",
     "__version__",
     "compare_solvers",
     "build_auction_level_table",
@@ -76,6 +79,7 @@ __all__ = [
     "kde_pdf",
     "optimal_uniform_reserve",
     "reserve_curve_uniform",
+    "run_timber_reserve_counterfactual",
     "solve_auction",
     "solve_bvp_collocation",
     "solve_fixed_point",
